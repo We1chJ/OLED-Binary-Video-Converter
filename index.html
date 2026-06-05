@@ -178,6 +178,19 @@
 
         hr { border: none; border-top: 1px solid #333; margin: 12px 0; }
 
+        /* Crop overlay */
+        .video-wrap { position: relative; }
+        #crop-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            cursor: crosshair;
+            pointer-events: none;
+            border-radius: 4px;
+        }
+        .crop-btns { display: flex; gap: 6px; margin-top: 4px; }
+        .crop-btns button { flex: 1; font-size: 11px; padding: 5px 8px; }
+        #cropBtn.active { color: #4a9eff; border-color: #4a9eff; background: #1a2e45; }
+
         /* Canvas */
         .preview-pair {
             display: flex;
@@ -387,7 +400,14 @@
             <div class="preview-pair">
                 <div>
                     <div class="preview-label">Original</div>
-                    <video id="video" controls muted loop></video>
+                    <div class="video-wrap">
+                        <video id="video" controls muted loop></video>
+                        <canvas id="crop-overlay"></canvas>
+                    </div>
+                    <div class="crop-btns">
+                        <button id="cropBtn" class="btn-secondary">Crop</button>
+                        <button id="clearCropBtn" class="btn-secondary" style="display:none;">✕ Clear</button>
+                    </div>
                 </div>
                 <div>
                     <div class="preview-label">OLED Output</div>
@@ -460,6 +480,7 @@
     let isConverting = false;
     let rafId = null;
     let rotAngle = 0;
+    let cropStart = null, cropEnd = null, draggingCrop = false, cropMode = false;
 
     const bayer8x8 = [
         [ 0,32, 8,40, 2,34,10,42],
@@ -635,15 +656,21 @@
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, OLED_W, OLED_H);
 
+        const crop = getCrop();
+        const sx = crop ? crop.x * offscreen.width  : 0;
+        const sy = crop ? crop.y * offscreen.height : 0;
+        const sw = crop ? crop.w * offscreen.width  : offscreen.width;
+        const sh = crop ? crop.h * offscreen.height : offscreen.height;
+
         let tx = 0, ty = 0, tw = OLED_W, th = OLED_H;
         const mode = scaleModeEl.value;
         if (mode === 'fit') {
-            const sc = Math.min(OLED_W / effW, OLED_H / effH);
-            tw = effW * sc; th = effH * sc;
+            const sc = Math.min(OLED_W / sw, OLED_H / sh);
+            tw = sw * sc; th = sh * sc;
             tx = (OLED_W - tw) / 2; ty = (OLED_H - th) / 2;
         } else if (mode === 'cover') {
-            const sc = Math.max(OLED_W / effW, OLED_H / effH);
-            tw = effW * sc; th = effH * sc;
+            const sc = Math.max(OLED_W / sw, OLED_H / sh);
+            tw = sw * sc; th = sh * sc;
             tx = (OLED_W - tw) / 2 + parseInt(customX.value);
             ty = (OLED_H - th) / 2 + parseInt(customY.value);
         } else if (mode === 'custom') {
@@ -653,11 +680,11 @@
 
         const t = parseFloat(thicknessEl.value);
         ctx.globalCompositeOperation = t < 0 ? 'darken' : t > 0 ? 'lighten' : 'source-over';
-        ctx.drawImage(offscreen, tx, ty, tw, th);
+        ctx.drawImage(offscreen, sx, sy, sw, sh, tx, ty, tw, th);
         if (t !== 0) {
             const o = Math.abs(t);
             [[-o,0],[o,0],[0,-o],[0,o],[-o*.7,-o*.7],[o*.7,-o*.7],[-o*.7,o*.7],[o*.7,o*.7]].forEach(([dx,dy]) => {
-                ctx.drawImage(offscreen, tx+dx, ty+dy, tw, th);
+                ctx.drawImage(offscreen, sx, sy, sw, sh, tx+dx, ty+dy, tw, th);
             });
         }
         ctx.globalCompositeOperation = 'source-over';
@@ -856,6 +883,94 @@ ${framesData.join(',\n')}
     }
     setupCopy('copyArrayBtn', outputArray);
     setupCopy('copyMainBtn',  outputMain);
+
+    // ── Crop ──
+    const cropOverlay  = document.getElementById('crop-overlay');
+    const cropCtx2     = cropOverlay.getContext('2d');
+    const cropBtn      = document.getElementById('cropBtn');
+    const clearCropBtn = document.getElementById('clearCropBtn');
+
+    function getCrop() {
+        if (!cropStart || !cropEnd) return null;
+        const x = Math.min(cropStart.x, cropEnd.x);
+        const y = Math.min(cropStart.y, cropEnd.y);
+        const w = Math.abs(cropEnd.x - cropStart.x);
+        const h = Math.abs(cropEnd.y - cropStart.y);
+        return (w < 0.02 || h < 0.02) ? null : { x, y, w, h };
+    }
+
+    function paintCropOverlay() {
+        const W = cropOverlay.parentElement.offsetWidth;
+        const H = cropOverlay.parentElement.offsetHeight;
+        if (!W || !H) return;
+        cropOverlay.width  = W;
+        cropOverlay.height = H;
+        cropCtx2.clearRect(0, 0, W, H);
+        const crop = getCrop();
+        if (!crop) return;
+        const x = crop.x * W, y = crop.y * H, w = crop.w * W, h = crop.h * H;
+        cropCtx2.fillStyle = 'rgba(0,0,0,0.55)';
+        cropCtx2.fillRect(0, 0, W, H);
+        cropCtx2.clearRect(x, y, w, h);
+        cropCtx2.strokeStyle = '#4a9eff';
+        cropCtx2.lineWidth = 1.5;
+        cropCtx2.setLineDash([4, 3]);
+        cropCtx2.strokeRect(x + 0.75, y + 0.75, w - 1.5, h - 1.5);
+        cropCtx2.setLineDash([]);
+        const hs = 7;
+        cropCtx2.fillStyle = '#4a9eff';
+        [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].forEach(([cx, cy]) => {
+            cropCtx2.fillRect(cx - hs / 2, cy - hs / 2, hs, hs);
+        });
+    }
+
+    function normPos(e) {
+        const r = cropOverlay.getBoundingClientRect();
+        return {
+            x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+            y: Math.max(0, Math.min(1, (e.clientY - r.top)  / r.height))
+        };
+    }
+
+    cropBtn.addEventListener('click', () => {
+        cropMode = !cropMode;
+        cropOverlay.style.pointerEvents = cropMode ? 'auto' : 'none';
+        cropBtn.classList.toggle('active', cropMode);
+        cropBtn.textContent = cropMode ? 'Done' : 'Crop';
+    });
+
+    clearCropBtn.addEventListener('click', () => {
+        cropStart = null; cropEnd = null;
+        paintCropOverlay();
+        clearCropBtn.style.display = 'none';
+        if (video.paused && !isConverting) drawFrame();
+    });
+
+    cropOverlay.addEventListener('mousedown', e => {
+        e.preventDefault();
+        draggingCrop = true;
+        cropStart = normPos(e);
+        cropEnd = { ...cropStart };
+        paintCropOverlay();
+    });
+
+    cropOverlay.addEventListener('mousemove', e => {
+        if (!draggingCrop) return;
+        cropEnd = normPos(e);
+        paintCropOverlay();
+        if (video.paused && !isConverting) drawFrame();
+    });
+
+    cropOverlay.addEventListener('mouseup', e => {
+        if (!draggingCrop) return;
+        draggingCrop = false;
+        cropEnd = normPos(e);
+        paintCropOverlay();
+        clearCropBtn.style.display = getCrop() ? 'inline-block' : 'none';
+        if (video.paused && !isConverting) drawFrame();
+    });
+
+    new ResizeObserver(paintCropOverlay).observe(cropOverlay.parentElement);
 
     loadSettings();
     canvas.style.aspectRatio = `${OLED_W} / ${OLED_H}`;
