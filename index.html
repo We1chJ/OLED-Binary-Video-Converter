@@ -179,13 +179,27 @@
         hr { border: none; border-top: 1px solid #333; margin: 12px 0; }
 
         /* Canvas */
+        .preview-pair {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+            align-items: flex-start;
+        }
+        .preview-pair > * { flex: 1; min-width: 0; }
+        .preview-label {
+            font-size: 10px;
+            color: #666;
+            text-align: center;
+            margin-bottom: 3px;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
         video {
             width: 100%;
             display: block;
             background: #000;
             border-radius: 4px;
             border: 1px solid #333;
-            margin-bottom: 10px;
         }
         #oled-canvas {
             display: block;
@@ -195,7 +209,6 @@
             border-radius: 4px;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
-            margin-bottom: 10px;
         }
 
         /* Status */
@@ -371,8 +384,16 @@
     <div>
         <div class="panel">
             <h3>Live Preview (OLED output)</h3>
-            <video id="video" controls muted loop></video>
-            <canvas id="oled-canvas" width="128" height="64"></canvas>
+            <div class="preview-pair">
+                <div>
+                    <div class="preview-label">Original</div>
+                    <video id="video" controls muted loop></video>
+                </div>
+                <div>
+                    <div class="preview-label">OLED Output</div>
+                    <canvas id="oled-canvas" width="128" height="64"></canvas>
+                </div>
+            </div>
             <div class="status-row">
                 <span id="status-text">Waiting for video...</span>
                 <span class="fc-label">Frames: <span id="frameCount">0</span></span>
